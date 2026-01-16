@@ -702,6 +702,53 @@ async def cancel(update, context):
     return ConversationHandler.END
 
 
+def run_polling(app):
+    app.run_polling(drop_pending_updates=True)
+
+
+def run_webhook(app):
+    import uvicorn
+    from starlette.applications import Starlette
+    from starlette.requests import Request
+    from starlette.responses import PlainTextResponse, Response
+    from starlette.routing import Route
+    from telegram import Update
+
+    public_url = os.getenv("PUBLIC_URL", "").rstrip("/")
+    port = int(os.getenv("PORT", "8000"))
+    webhook_path = os.getenv("WEBHOOK_PATH", "telegram").strip("/")
+
+    webhook_url = f"{public_url}/{webhook_path}"
+
+    async def health(_: Request):
+        return PlainTextResponse("ok")
+
+    async def telegram_hook(request: Request):
+        data = await request.json()
+        await app.update_queue.put(Update.de_json(data=data, bot=app.bot))
+        return Response()
+
+    web_app = Starlette(
+        routes=[
+            Route("/", health, methods=["GET"]),
+            Route(f"/{webhook_path}", telegram_hook, methods=["POST"]),
+        ]
+    )
+
+    @web_app.on_event("startup")
+    async def _startup():
+        await app.initialize()
+        await app.start()
+        await app.bot.set_webhook(url=webhook_url, allowed_updates=Update.ALL_TYPES)
+
+    @web_app.on_event("shutdown")
+    async def _shutdown():
+        await app.stop()
+        await app.shutdown()
+
+    uvicorn.run(web_app, host="0.0.0.0", port=port)
+
+
 def main():
     token = os.getenv("BOT_TOKEN")
     if not token:
@@ -742,7 +789,10 @@ def main():
     app.add_handler(food_conv)
 
     logger.info("Bot started")
-    app.run_polling()
+    if os.getenv("PUBLIC_URL"):
+        run_webhook(app)
+    else:
+        run_polling(app)
 
 
 if __name__ == "__main__":
