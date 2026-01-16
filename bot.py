@@ -714,7 +714,7 @@ def run_webhook(app):
     from starlette.routing import Route
     from telegram import Update
 
-    public_url = os.getenv("PUBLIC_URL", "").rstrip("/")
+    public_url = (os.getenv("PUBLIC_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").rstrip("/")
     port = int(os.getenv("PORT", "8000"))
     webhook_path = os.getenv("WEBHOOK_PATH", "telegram").strip("/")
 
